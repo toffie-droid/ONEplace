@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>The One Place</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#1a1d27; --card2:#12141c; --line:#262a38;
+    --text:#e6e8ee; --muted:#8b90a0; --accent:#6c8cff;
+    --good:#3ddc97; --warn:#ffb454; --bad:#ff6b6b;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--text);
+    padding:16px 14px calc(90px + env(safe-area-inset-bottom));
+    max-width:640px; margin:0 auto; min-height:100vh; font-size:16px;
+  }
+  h1{font-size:1.35rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.82rem;margin-top:2px}
+  .banner{
+    margin:14px 0 18px; padding:14px 16px; border-radius:var(--radius);
+    background:linear-gradient(135deg,#1e2440,#161a26);
+    border:1px solid #2b3350;
+  }
+  .banner .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);font-weight:700}
+  .banner .msg{font-size:.95rem;margin-top:4px;line-height:1.4}
+  .card{
+    background:var(--card); border:1px solid var(--line);
+    border-radius:var(--radius); padding:16px; margin-bottom:14px;
+  }
+  .card h2{
+    font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;
+    color:var(--muted);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .card h2 .count{color:var(--accent);font-weight:700}
+  /* Top 3 */
+  .top3-slot{
+    display:flex;align-items:center;gap:10px;padding:10px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .top3-slot:last-child{border-bottom:none}
+  .top3-num{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;
+    display:grid;place-items:center;font-size:.8rem;font-weight:800;
+    background:#232a40;color:var(--accent);
+  }
+  .top3-slot.done .top3-num{background:var(--good);color:#0f1117}
+  .top3-slot span.txt{flex:1;font-size:.95rem;line-height:1.35}
+  .top3-slot.done span.txt{text-decoration:line-through;color:var(--muted)}
+  .top3-slot.empty span.txt{color:var(--muted);font-style:italic}
+  /* Tasks */
+  .add-row{display:flex;gap:8px;margin-bottom:12px}
+  input[type=text]{
+    flex:1;padding:12px 14px;border-radius:12px;border:1px solid #2e3344;
+    background:var(--card2);color:var(--text);font-size:16px;font-family:inherit;
+  }
+  input[type=text]:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  button{
+    padding:12px 16px;border-radius:12px;border:none;background:var(--accent);
+    color:#fff;font-weight:700;font-size:.9rem;cursor:pointer;font-family:inherit;
+  }
+  button:active{opacity:.85}
+  button.ghost{background:#232a40;color:var(--text);font-weight:600}
+  ul{list-style:none}
+  li{
+    display:flex;align-items:center;gap:10px;padding:11px 0;
+    border-bottom:1px solid var(--line);font-size:.94rem;
+  }
+  li:last-child{border-bottom:none}
+  li span.txt{flex:1;line-height:1.35}
+  li.done span.txt{text-decoration:line-through;color:var(--muted)}
+  .chk{
+    width:26px;height:26px;border-radius:8px;flex-shrink:0;
+    border:2px solid #3a4056;background:transparent;cursor:pointer;
+    display:grid;place-items:center;color:transparent;font-size:.9rem;
+  }
+  .chk.on{background:var(--good);border-color:var(--good);color:#0f1117}
+  .icon-btn{
+    background:none;border:none;color:var(--muted);padding:6px 8px;
+    font-size:1rem;cursor:pointer;font-weight:400;
+  }
+  .icon-btn:active{color:var(--text)}
+  .tiny{font-size:.75rem;padding:7px 11px}
+  .empty{color:var(--muted);font-size:.88rem;padding:6px 0;font-style:italic}
+  /* Habits */
+  .habit-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .habit-row:last-child{border-bottom:none}
+  .habit-name{flex:1;font-size:.94rem}
+  .streak{font-size:.75rem;color:var(--warn);font-weight:700}
+  .toggle-habit{
+    width:36px;height:36px;border-radius:50%;border:2px solid #3a4056;
+    background:transparent;cursor:pointer;color:transparent;font-size:1rem;
+    display:grid;place-items:center;flex-shrink:0;
+  }
+  .toggle-habit.on{background:var(--good);border-color:var(--good);color:#0f1117}
+  /* Mood */
+  .mood-row{display:flex;gap:8px;justify-content:space-between}
+  .mood-btn{
+    flex:1;font-size:1.4rem;padding:10px 0;border-radius:12px;
+    background:var(--card2);border:2px solid transparent;cursor:pointer;
+    filter:grayscale(1);opacity:.5;transition:.15s;
+  }
+  .mood-btn.on{filter:none;opacity:1;border-color:var(--accent);background:#1e2440}
+  /* Footer actions */
+  .footer-bar{
+    position:fixed;left:0;right:0;bottom:0;
+    background:rgba(15,17,23,.92);backdrop-filter:blur(10px);
+    border-top:1px solid var(--line);
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    display:flex;gap:8px;max-width:640px;margin:0 auto;
+  }
+  .footer-bar button{flex:1;padding:11px 8px;font-size:.82rem}
+  /* Modal */
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(0,0,0,.65);
+    display:none;place-items:center;padding:20px;z-index:50;
+  }
+  .modal-bg.show{display:grid}
+  .modal{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px;width:100%;max-width:480px;max-height:80vh;overflow:auto;
+  }
+  .modal h3{font-size:1rem;margin-bottom:12px}
+  .modal .add-row{margin-bottom:14px}
+  .toast{
+    position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;
+    transform:translateX(-50%) translateY(20px);opacity:0;
+    background:var(--good);color:#0f1117;font-weight:700;font-size:.85rem;
+    padding:10px 18px;border-radius:999px;pointer-events:none;
+    transition:.25s;z-index:100;white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>The One Place</h1>
+  <div class="sub" id="dateLine"></div>
+</header>
+
+<div class="banner" id="banner">
+  <div class="label" id="bannerLabel">Now</div>
+  <div class="msg" id="bannerMsg"></div>
+</div>
+
+<!-- TOP 3 -->
+<div class="card">
+  <h2>Top 3 Priorities <span class="count" id="top3Count">0/3</span></h2>
+  <div id="top3List"></div>
+</div>
+
+<!-- TODAY TASKS -->
+<div class="card">
+  <h2>Today's Tasks <span class="count" id="todayCount">0</span></h2>
+  <div class="add-row">
+    <input type="text" id="todayInput" placeholder="Add a task for today…" enterkeyhint="done">
+    <button onclick="addToday()">Add</button>
+  </div>
+  <ul id="todayList"></ul>
+</div>
+
+<!-- HABITS -->
+<div class="card">
+  <h2>Habits</h2>
+  <div id="habitList"></div>
+  <div class="add-row" style="margin-top:12px;margin-bottom:0">
+    <input type="text" id="habitInput" placeholder="Add a habit…">
+    <button class="ghost" onclick="addHabit()">+</button>
+  </div>
+</div>
+
+<!-- MOOD -->
+<div class="card">
+  <h2>Mood Today</h2>
+  <div class="mood-row" id="moodRow"></div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer-bar">
+  <button class="ghost" onclick="openBacklog()">Backlog <span id="backlogCount"></span></button>
+  <button class="ghost" onclick="openInbox()">Inbox <span id="inboxCount"></span></button>
+  <button class="ghost" onclick="exportData()">Export</button>
+  <button class="ghost" onclick="document.getElementById('importFile').click()">Import</button>
+  <input type="file" id="importFile" accept=".json" style="display:none">
+</div>
+
+<!-- BACKLOG MODAL -->
+<div class="modal-bg" id="backlogModal">
+  <div class="modal">
+    <h3>Backlog — pull into today</h3>
+    <div class="add-row">
+      <input type="text" id="backlogInput" placeholder="Add to backlog…">
+      <button onclick="addBacklog()">Add</button>
+    </div>
+    <ul id="backlogList"></ul>
+    <div style="margin-top:16px;text-align:right">
+      <button class="ghost" onclick="closeModal('backlogModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- INBOX MODAL -->
+<div class="modal-bg" id="inboxModal">
+  <div class="modal">
+    <h3>Quick Capture Inbox</h3>
+    <div class="add-row">
+      <input type="text" id="inboxInput" placeholder="Dump a thought…">
+      <button onclick="addInbox()">Add</button>
+    </div>
+    <ul id="inboxList"></ul>
+    <div style="margin-top:16px;text-align:right">
+      <button class="ghost" onclick="closeModal('inboxModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   THE ONE PLACE — v1
+   Schedule: Wed–Sun, ~11:00–20:00  (Mon/Tue = days off)
+   Data: localStorage. Back up via Export.
+   ============================================================ */
+
+const KEY = 'oneplace-v1';
+const todayKey = () => new Date().toISOString().slice(0,10);
+
+/* ---------- State ---------- */
+function blankState(){
+  return {
+    tasks: [],        // {id,text,done,date|null}  date=null => backlog
+    top3: [null,null,null], // task ids or null
+    habits: [],       // {id,name,log:{date:true}}
+    moods: {},        // {date: '😀'}
+    inbox: []         // {id,text}
+  };
+}
+let state = load();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(!raw) return blankState();
+    const s = JSON.parse(raw);
+    // merge to protect against older shapes
+    const b = blankState();
+    return Object.assign(b, s);
+  }catch(e){ return blankState(); }
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ---------- Utils ---------- */
+const $ = id => document.getElementById(id);
+const uid = () => Math.random().toString(36).slice(2,10);
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+/* ---------- Time-aware banner (the heart of v1) ---------- */
+function updateBanner(){
+  const now = new Date();
+  const day = now.getDay();            // 0=Sun ... 6=Sat
+  const h = now.getHours() + now.getMinutes()/60;
+  const isWorkDay = day>=3 || day===0; // Wed,Thu,Fri,Sat,Sun
+  const label = $('bannerLabel'), msg = $('bannerMsg');
+
+  if(!isWorkDay){
+    label.textContent = 'Day off';
+    msg.textContent = 'No shift today. Pick your Top 3 and protect the time.';
+    return;
+  }
+  if(h < 9){
+    label.textContent = 'Morning — before work';
+    msg.textContent = 'You lose focus here. Do ONE thing from your Top 3 before you get ready.';
+  } else if(h < 10.5){
+    label.textContent = 'Getting ready';
+    msg.textContent = 'Lock in your Top 3 for the day so after work is easy.';
+  } else if(h < 20){
+    label.textContent = 'At work';
+    msg.textContent = 'On shift. Capture anything that pops up in the Inbox — don\'t act on it now.';
+  } else if(h < 22){
+    label.textContent = 'After work — danger zone';
+    msg.textContent = 'If you go home, do ONE Top 3 task before you sit down. Then you\'re free.';
+  } else {
+    label.textContent = 'Late';
+    msg.textContent = 'Wind down. Set tomorrow\'s Top 3 in 2 minutes, then rest.';
+  }
+}
+
+/* ---------- Top 3 ---------- */
+function getTask(id){ return state.tasks.find(t=>t.id===id); }
+
+function renderTop3(){
+  const wrap = $('top3List'); wrap.innerHTML = '';
+  let doneCount = 0;
+  state.top3.forEach((tid, i)=>{
+    const t = tid ? getTask(tid) : null;
+    const div = document.createElement('div');
+    div.className = 'top3-slot' + (t && t.done ? ' done' : '') + (!t ? ' empty' : '');
+    const txt = t ? t.text : 'Tap to set priority ' + (i+1);
+    div.innerHTML = `<div class="top3-num">${t && t.done ? '✓' : (i+1)}</div>
+                     <span class="txt">${t ? esc(txt) : txt}</span>`;
+    div.querySelector('.txt').addEventListener('click', ()=>pickTop3(i));
+    wrap.appendChild(div);
+    if(t && t.done) doneCount++;
+  });
+  $('top3Count').textContent = doneCount + '/3';
+}
+
+function pickTop3(i){
+  // choose from today's tasks not already in top3
+  const used = state.top3.filter(Boolean);
+  const options = state.tasks.filter(t => t.date===todayKey() && !used.includes(t.id));
+  if(options.length === 0){
+    toast('Add a task for today first');
+    return;
+  }
+  // simple cycle: pick first available, or clear if already set
+  if(state.top3[i]){
+    state.top3[i] = null; save(); renderAll(); return;
+  }
+  state.top3[i] = options[0].id;
+  save(); renderAll();
+}
+
+/* ---------- Today tasks ---------- */
+function renderToday(){
+  const list = $('todayList'); list.innerHTML = '';
+  const todays = state.tasks.filter(t=>t.date===todayKey());
+  if(todays.length===0){
+    list.innerHTML = '<div class="empty">Nothing yet. Add your 3–6 for today.</div>';
+  }
+  todays.forEach(t=>{
+    const li = document.createElement('li');
+    if(t.done) li.className='done';
+    li.innerHTML = `
+      <button class="chk ${t.done?'on':''}" aria-label="toggle">✓</button>
+      <span class="txt">${esc(t.text)}</span>
+      <button class="icon-btn" title="backlog">↩</button>
+      <button class="icon-btn" title="delete">✕</button>`;
+    const [chk, , back, del] = li.querySelectorAll('button');
+    chk.onclick = ()=>{ t.done=!t.done; save(); renderAll(); };
+    back.onclick = ()=>{ t.date=null; state.top3 = state.top3.map(x=>x===t.id?null:x); save(); renderAll(); toast('Moved to backlog'); };
+    del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); };
+    list.appendChild(li);
+  });
+  $('todayCount').textContent = todays.filter(t=>t.done).length + '/' + todays.length;
+}
+
+function addToday(){
+  const inp = $('todayInput');
+  const text = inp.value.trim();
+  if(!text) return;
+  state.tasks.push({id:uid(), text, done:false, date:todayKey()});
+  inp.value=''; save(); renderAll();
+  inp.focus();
+}
+
+function removeTask(id){
+  state.tasks = state.tasks.filter(t=>t.id!==id);
+  state.top3 = state.top3.map(x=>x===id?null:x);
+}
+
+/* ---------- Habits ---------- */
+function renderHabits(){
+  const wrap = $('habitList'); wrap.innerHTML='';
+  if(state.habits.length===0){
+    wrap.innerHTML = '<div class="empty">Start with 2–3 habits. Consistency beats quantity.</div>';
+  }
+  const tk = todayKey();
+  state.habits.forEach(h=>{
+    const on = !!h.log[tk];
+    const streak = calcStreak(h.log);
+    const row = document.createElement('div');
+    row.className='habit-row';
+    row.innerHTML = `
+      <span class="habit-name">${esc(h.name)}</span>
+      <span class="streak">🔥 ${streak}</span>
+      <button class="toggle-habit ${on?'on':''}">✓</button>
+      <button class="icon-btn" title="remove">✕</button>`;
+    const [toggle, del] = row.querySelectorAll('button');
+    toggle.onclick = ()=>{
+      if(h.log[tk]) delete h.log[tk]; else h.log[tk]=true;
+      save(); renderHabits();
+    };
+    del.onclick = ()=>{
+      state.habits = state.habits.filter(x=>x.id!==h.id);
+      save(); renderHabits();
+    };
+    wrap.appendChild(row);
+  });
+}
+function calcStreak(log){
+  let s=0, d=new Date();
+  while(true){
+    const k = d.toISOString().slice(0,10);
+    if(log[k]){ s++; d.setDate(d.getDate()-1); } else break;
+    if(s>3650) break;
+  }
+  return s;
+}
+function addHabit(){
+  const inp = $('habitInput');
+  const name = inp.value.trim();
+  if(!name) return;
+  state.habits.push({id:uid(), name, log:{}});
+  inp.value=''; save(); renderHabits();
+}
+
+/* ---------- Mood ---------- */
+const MOODS = ['😫','😕','😐','🙂','😄'];
+function renderMood(){
+  const row = $('moodRow'); row.innerHTML='';
+  const cur = state.moods[todayKey()];
+  MOODS.forEach(m=>{
+    const b = document.createElement('button');
+    b.className = 'mood-btn' + (cur===m?' on':'');
+    b.textContent = m;
+    b.onclick = ()=>{ state.moods[todayKey()]=m; save(); renderMood(); };
+    row.appendChild(b);
+  });
+}
+
+/* ---------- Backlog ---------- */
+function openBacklog(){ renderBacklog(); $('backlogModal').classList.add('show'); }
+function renderBacklog(){
+  const list = $('backlogList'); list.innerHTML='';
+  const items = state.tasks.filter(t=>t.date===null);
+  $('backlogCount').textContent = items.length ? '('+items.length+')' : '';
+  if(items.length===0){
+    list.innerHTML = '<div class="empty">Backlog is empty. Dump ideas here so Today stays clean.</div>';
+  }
+  items.forEach(t=>{
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="txt">${esc(t.text)}</span>
+      <button class="ghost tiny">→ Today</button>
+      <button class="icon-btn">✕</button>`;
+    const [pull, del] = li.querySelectorAll('button');
+    pull.onclick = ()=>{ t.date = todayKey(); save(); renderAll(); renderBacklog(); toast('Added to today'); };
+    del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); renderBacklog(); };
+    list.appendChild(li);
+  });
+}
+function addBacklog(){
+  const inp = $('backlogInput');
+  const text = inp.value.trim();
+  if(!text) return;
+  state.tasks.push({id:uid(), text, done:false, date:null});
+  inp.value=''; save(); renderBacklog(); renderCounts();
+}
+
+/* ---------- Inbox ---------- */
+function openInbox(){ renderInbox(); $('inboxModal').classList.add('show'); }
+function renderInbox(){
+  const list = $('inboxList'); list.innerHTML='';
+  $('inboxCount').textContent = state.inbox.length ? '('+state.inbox.length+')' : '';
+  if(state.inbox.length===0){
+    list.innerHTML = '<div class="empty">Nothing captured. Use this when a thought pops up mid-shift.</div>';
+  }
+  state.inbox.forEach(item=>{
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="txt">${esc(item.text)}</span>
+      <button class="ghost tiny">→ Today</button>
+      <button class="ghost tiny">→ Backlog</button>
+      <button class="icon-btn">✕</button>`;
+    const [toToday, toBacklog, del] = li.querySelectorAll('button');
+    toToday.onclick = ()=>{ state.tasks.push({id:uid(),text:item.text,done:false,date:todayKey()}); dropInbox(item.id); toast('Added to today'); };
+    toBacklog.onclick = ()=>{ state.tasks.push({id:uid(),text:item.text,done:false,date:null}); dropInbox(item.id); toast('Sent to backlog'); };
+    del.onclick = ()=> dropInbox(item.id);
+    list.appendChild(li);
+  });
+}
+function dropInbox(id){
+  state.inbox = state.inbox.filter(x=>x.id!==id);
+  save(); renderInbox(); renderAll();
+}
+function addInbox(){
+  const inp = $('inboxInput');
+  const text = inp.value.trim();
+  if(!text) return;
+  state.inbox.push({id:uid(), text});
+  inp.value=''; save(); renderInbox(); renderCounts();
+}
+
+/* ---------- Modal close ---------- */
+function closeModal(id){ $(id).classList.remove('show'); }
+document.querySelectorAll('.modal-bg').forEach(m=>{
+  m.addEventListener('click', e=>{ if(e.target===m) m.classList.remove('show'); });
+});
+
+/* ---------- Counts in footer ---------- */
+function renderCounts(){
+  const b = state.tasks.filter(t=>t.date===null).length;
+  $('backlogCount').textContent = b ? '('+b+')' : '';
+  $('inboxCount').textContent = state.inbox.length ? '('+state.inbox.length+')' : '';
+}
+
+/* ---------- Export / Import ---------- */
+function exportData(){
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'oneplace-backup-' + todayKey() + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Backup downloaded');
+}
+$('importFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      const data = JSON.parse(r.result);
+      const b = blankState();
+      state = Object.assign(b, data);
+      // safety: drop top3 ids that no longer exist
+      state.top3 = state.top3.map(id => getTask(id) ? id : null);
+      save(); renderAll();
+      toast('Data imported');
+    }catch(err){ alert('Could not read that file.'); }
+  };
+  r.readAsText(f);
+  e.target.value='';
+});
+
+/* ---------- Date line ---------- */
+function renderDate(){
+  $('dateLine').textContent = new Date().toLocaleDateString(undefined,{
+    weekday:'long', month:'long', day:'numeric'
+  });
+}
+
+/* ---------- Render all ---------- */
+function renderAll(){
+  renderDate();
+  updateBanner();
+  renderTop3();
+  renderToday();
+  renderHabits();
+  renderMood();
+  renderCounts();
+}
+
+/* ---------- Enter key support ---------- */
+$('todayInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addToday(); });
+$('habitInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addHabit(); });
+$('backlogInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addBacklog(); });
+$('inboxInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addInbox(); });
+
+/* ---------- Boot ---------- */
+renderAll();
+// refresh banner every minute
+setInterval(updateBanner, 60000);
+// if day rolls over while open, reset today's view
+let lastDay = todayKey();
+setInterval(()=>{
+  const d = todayKey();
+  if(d!==lastDay){ lastDay=d; renderAll(); }
+}, 60000);
+</script>
+</body>
+</html>
