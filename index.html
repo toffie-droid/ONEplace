@@ -124,10 +124,10 @@
     background:rgba(15,17,23,.95); backdrop-filter:blur(10px);
     border-top:1px solid var(--line);
     padding:10px 14px calc(10px + env(safe-area-inset-bottom));
-    display:flex; gap:8px; max-width:640px; margin:0 auto; z-index:40;
+    display:flex; gap:6px; max-width:640px; margin:0 auto; z-index:40;
   }
   .bottom-nav button{
-    flex:1; padding:12px 8px; font-size:.85rem; border-radius:12px;
+    flex:1; padding:12px 4px; font-size:.75rem; border-radius:12px;
     background:transparent; color:var(--muted); font-weight:600;
   }
   .bottom-nav button.active{ background:#232a40; color:var(--accent); }
@@ -146,6 +146,24 @@
   .day-pill .dow{ font-size:.7rem; text-transform:uppercase; font-weight:700; opacity:0.8; }
   .day-pill .num{ font-size:1.2rem; font-weight:800; margin-top:2px;}
   .planner-header{ font-size:1.1rem; font-weight:700; margin-bottom:12px; color:var(--accent); }
+
+  /* STATS SPECIFIC */
+  .stat-focus{
+    font-size:2.5rem; font-weight:800; text-align:center; color:var(--accent);
+    margin:10px 0;
+  }
+  .bar-chart{ display:flex; align-items:flex-end; height:120px; gap:8px; padding-top:10px;}
+  .bar-wrap{ flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; height:100%; justify-content:flex-end;}
+  .bar{ width:100%; background:var(--accent); border-radius:4px 4px 0 0; min-height:4px; transition:height 0.3s;}
+  .bar-label{ font-size:0.65rem; color:var(--muted); text-transform:uppercase;}
+  
+  .heatmap { display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; margin-top:10px;}
+  .heatmap-cell { aspect-ratio:1; border-radius:4px; background:#232a40; }
+  .heatmap-cell.active { background:var(--good); }
+  
+  .mood-history { display:flex; justify-content:space-between; padding:10px 0;}
+  .mood-hist-item { display:flex; flex-direction:column; align-items:center; font-size:1.2rem; gap:4px;}
+  .mood-hist-item .dow { font-size:0.65rem; color:var(--muted); text-transform:uppercase;}
 
   /* Modal */
   .modal-bg{
@@ -256,6 +274,38 @@
   </div>
 </div>
 
+<!-- ==================== STATS VIEW ==================== -->
+<div id="view-stats" class="view-section">
+  <header>
+    <h1>Your Stats</h1>
+    <div class="sub">Progress and consistency.</div>
+  </header>
+
+  <div class="card" style="margin-top:20px">
+    <h2>Focus Sessions</h2>
+    <div class="stat-focus" id="statFocus">0</div>
+    <div style="text-align:center; font-size:0.8rem; color:var(--muted);">Total Pomodoro sessions completed</div>
+  </div>
+
+  <div class="card">
+    <h2>Tasks (Last 7 Days)</h2>
+    <div class="bar-chart" id="statTasks"></div>
+  </div>
+
+  <div class="card">
+    <h2>Mood (Last 7 Days)</h2>
+    <div class="mood-history" id="statMoods"></div>
+  </div>
+
+  <div class="card">
+    <h2>Habit Heatmap (Last 35 Days)</h2>
+    <div class="heatmap" id="statHeatmap"></div>
+    <div style="font-size:0.7rem; color:var(--muted); margin-top:12px; text-align:center;">
+      Dark = 0 habits • Green = 1+ habits
+    </div>
+  </div>
+</div>
+
 <!-- ==================== MENU VIEW ==================== -->
 <div id="view-menu" class="view-section">
   <header>
@@ -275,7 +325,7 @@
   <div class="card">
     <h2>About</h2>
     <p style="font-size:0.85rem; color:var(--muted); line-height:1.5;">
-      The One Place v3.<br>
+      The One Place v4.<br>
       All data is stored locally on your device. Remember to export a backup regularly.
     </p>
   </div>
@@ -285,6 +335,7 @@
 <div class="bottom-nav">
   <button id="nav-today" class="active" onclick="switchView('today')">Today</button>
   <button id="nav-planner" onclick="switchView('planner')">Planner</button>
+  <button id="nav-stats" onclick="switchView('stats')">Stats</button>
   <button id="nav-menu" onclick="switchView('menu')">Menu</button>
 </div>
 
@@ -340,10 +391,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================================================
-   THE ONE PLACE — v3 (Planner + Navigation)
-   ============================================================ */
-
 var KEY = 'oneplace-v1';
 
 function todayKey(){ 
@@ -422,6 +469,7 @@ function switchView(viewName) {
   $('nav-' + viewName).classList.add('active');
   
   if(viewName === 'planner') renderPlanner();
+  if(viewName === 'stats') renderStats();
 }
 
 /* ---------- TIME-AWARE BANNER ---------- */
@@ -552,7 +600,6 @@ function renderToday(){
       save(); renderAll(); 
     };
     
-    // Push to tomorrow button
     btns[1].onclick = function(){ 
       t.date = addDays(tk, 1); 
       state.top3 = state.top3.map(function(x){ return x===t.id?null:x; }); 
@@ -659,6 +706,63 @@ function removeTask(id){
   state.top3 = state.top3.map(function(x){ return x===id?null:x; });
 }
 
+/* ---------- STATS VIEW ---------- */
+function renderStats() {
+  // 1. Focus Sessions
+  $('statFocus').textContent = state.timerSessions;
+
+  // 2. Task Bar Chart (Last 7 Days)
+  var taskChart = $('statTasks'); taskChart.innerHTML = '';
+  var tk = todayKey();
+  var counts = [];
+  var maxCount = 0;
+  
+  // Loop backwards 6 days to today
+  for(var i=6; i>=0; i--) {
+    var d = addDays(tk, -i);
+    var c = state.tasks.filter(function(t) { return t.date === d && t.done; }).length;
+    counts.push({ date: d, count: c });
+    if(c > maxCount) maxCount = c;
+  }
+  if(maxCount === 0) maxCount = 1; 
+
+  counts.forEach(function(item) {
+    var d = new Date(item.date + 'T12:00:00');
+    var dow = d.toLocaleDateString(undefined, {weekday: 'narrow'});
+    var hPct = Math.max(4, (item.count / maxCount) * 100);
+    var wrap = document.createElement('div'); wrap.className = 'bar-wrap';
+    wrap.innerHTML = '<div class="bar" style="height:' + hPct + '%"></div>' +
+                     '<div class="bar-label">' + dow + '</div>';
+    wrap.title = item.count + ' tasks';
+    taskChart.appendChild(wrap);
+  });
+
+  // 3. Mood History (Last 7 Days)
+  var moodHist = $('statMoods'); moodHist.innerHTML = '';
+  for(var i=6; i>=0; i--) {
+    var d = addDays(tk, -i);
+    var m = state.moods[d];
+    var dObj = new Date(d + 'T12:00:00');
+    var dow = dObj.toLocaleDateString(undefined, {weekday: 'narrow'});
+    var el = document.createElement('div'); el.className = 'mood-hist-item';
+    el.innerHTML = '<div>' + (m || '·') + '</div><div class="dow">' + dow + '</div>';
+    moodHist.appendChild(el);
+  }
+
+  // 4. Habit Heatmap (Last 35 Days)
+  var heatmap = $('statHeatmap'); heatmap.innerHTML = '';
+  for(var i=34; i>=0; i--) {
+    var d = addDays(tk, -i);
+    var habitCount = 0;
+    state.habits.forEach(function(h) { if(h.log[d]) habitCount++; });
+    
+    var cell = document.createElement('div');
+    cell.className = 'heatmap-cell' + (habitCount > 0 ? ' active' : '');
+    cell.title = d + ': ' + habitCount + ' habits';
+    heatmap.appendChild(cell);
+  }
+}
+
 /* ---------- POMODORO ---------- */
 var timerTime = 25 * 60;
 var timerId = null;
@@ -733,6 +837,7 @@ function renderHabits(){
     wrap.appendChild(row);
   });
 }
+
 function calcStreak(log){
   var s=0, d=new Date();
   while(true){
@@ -742,6 +847,7 @@ function calcStreak(log){
   }
   return s;
 }
+
 function addHabit(){
   var inp = $('habitInput'); var name = inp.value.trim();
   if(!name) return;
@@ -762,7 +868,7 @@ function renderMood(){
   });
 }
 
-/* ---------- BACKLOG & INBOX (MENU) ---------- */
+/* ---------- BACKLOG & INBOX ---------- */
 function openBacklog(){ renderBacklog(); $('backlogModal').classList.add('show'); }
 function renderBacklog(){
   var list = $('backlogList'); list.innerHTML='';
@@ -777,6 +883,7 @@ function renderBacklog(){
     list.appendChild(li);
   });
 }
+
 function addBacklog(){
   var inp = $('backlogInput'); var text = inp.value.trim();
   if(!text) return;
@@ -798,10 +905,12 @@ function renderInbox(){
     list.appendChild(li);
   });
 }
+
 function dropInbox(id){
   state.inbox = state.inbox.filter(function(x){ return x.id !== id; });
   save(); renderInbox(); renderAll();
 }
+
 function addInbox(){
   var inp = $('inboxInput'); var text = inp.value.trim();
   if(!text) return;
@@ -846,6 +955,7 @@ function renderDate(){ $('dateLine').textContent = new Date().toLocaleDateString
 function renderAll(){
   renderDate(); updateBanner(); renderTop3(); renderToday(); renderHabits(); renderMood(); renderCounts(); updateTimerDisplay();
   if($('view-planner').classList.contains('active')) renderPlanner();
+  if($('view-stats').classList.contains('active')) renderStats();
 }
 
 document.querySelectorAll('.modal-bg').forEach(function(m){
