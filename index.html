@@ -107,6 +107,11 @@
     filter:grayscale(1);opacity:.5;transition:.15s;
   }
   .mood-btn.on{filter:none;opacity:1;border-color:var(--accent);background:#1e2440}
+  /* Pomodoro */
+  .timer-display{font-size:2.5rem;font-weight:700;text-align:center;margin:10px 0;font-variant-numeric:tabular-nums}
+  .timer-controls{display:flex;gap:8px;justify-content:center}
+  .timer-controls button{flex:1;max-width:100px}
+  .timer-status{text-align:center;font-size:.8rem;color:var(--muted);margin-top:8px}
   /* Footer actions */
   .footer-bar{
     position:fixed;left:0;right:0;bottom:0;
@@ -142,6 +147,9 @@
     transition:.25s;z-index:100;white-space:nowrap;
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  /* Confetti */
+  .confetti{position:fixed;top:-10px;left:50%;width:10px;height:10px;background:#ff6b6b;z-index:999;pointer-events:none;border-radius:2px;animation:fall 2s linear forwards}
+  @keyframes fall{to{transform:translateY(100vh) rotate(720deg);opacity:0}}
 </style>
 </head>
 <body>
@@ -170,6 +178,17 @@
     <button onclick="addToday()">Add</button>
   </div>
   <ul id="todayList"></ul>
+</div>
+
+<!-- POMODORO -->
+<div class="card">
+  <h2>Focus Timer</h2>
+  <div class="timer-display" id="timerDisplay">25:00</div>
+  <div class="timer-controls">
+    <button class="ghost" onclick="startTimer()" id="startBtn">Start</button>
+    <button class="ghost" onclick="resetTimer()">Reset</button>
+  </div>
+  <div class="timer-status" id="timerStatus">Session 1 • Ready</div>
 </div>
 
 <!-- HABITS -->
@@ -242,17 +261,24 @@
 
 <script>
 /* ============================================================
-   THE ONE PLACE — v1.2 (Timezone fix)
+   THE ONE PLACE — v2 (Stable + Timezone Fix + Pomodoro + Recurring)
    ============================================================ */
 
 const KEY = 'oneplace-v1';
 
-// FIX: Use local time instead of UTC for today's date
+// BULLETPROOF LOCAL TIME FUNCTION
 function todayKey(){ 
   const d = new Date();
   return d.getFullYear() + '-' + 
          String(d.getMonth() + 1).padStart(2, '0') + '-' + 
          String(d.getDate()).padStart(2, '0');
+}
+
+// Add days to a date string
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 /* ---------- State ---------- */
@@ -262,20 +288,272 @@ function blankState(){
     top3: [null,null,null],
     habits: [],
     moods: {},
-    inbox: []
+    inbox: [],
+    timerSessions: 0
   };
 }
-let state = load();
 
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(!raw) return blankState();
-    const parsed = JSON.parse(raw);
-    const s = Object.assign(blankState(), parsed);
+    const s = JSON.parse(raw);
+    const safe = blankState();
+    
+    if(s.tasks) safe.tasks = s.tasks;
+    if(s.top3) safe.top3 = s.top3;
+    if(s.habits) safe.habits = s.habits;
+    if(s.moods) safe.moods = s.moods;
+    if(s.inbox) safe.inbox = s.inbox;
+    if(s.timerSessions) safe.timerSessions = s.timerSessions;
 
-    /* --- MIGRATION --- */
-    s.tasks = (s.tasks || []).filter(t => t && typeof t.text === 'string').map(t => ({
+    // RESCUE: Fix tasks trapped on tomorrow's date due to UTC bug
+    const tk = todayKey();
+    const utcTomorrow = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+    safe.tasks = safe.tasks.map(t => {
+      if (t.date === utcTomorrow && utcTomorrow !== tk) {
+        return { ...t, date: tk };
+      }
+      return t;
+    });
+
+    // Ensure all tasks have an ID and a repeat field
+    safe.tasks = safe.tasks.map(t => ({
+      ...t,
+      id: t.id || uid(),
+      repeat: t.repeat || 'none'
+    }));
+
+    return safe;
+  }catch(e){ return blankState(); }
+}
+
+let state = load();
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ---------- Utils ---------- */
+const $ = id => document.getElementById(id);
+const uid = () => Math.random().toString(36).slice(2,10);
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+function confetti(){
+  for(let i=0; i<20; i++){
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = ['#ff6b6b', '#3ddc97', '#6c8cff', '#ffb454'][Math.floor(Math.random()*4)];
+    c.style.animationDelay = Math.random() * 0.5 + 's';
+    document.body.appendChild(c);
+    setTimeout(()=>c.remove(), 2500);
+  }
+}
+
+/* ---------- Time-aware banner ---------- */
+function updateBanner(){
+  const now = new Date();
+  const day = now.getDay();          
+  const h = now.getHours() + now.getMinutes()/60;
+  const isWorkDay = day>=3 || day===0;
+  const label = $('bannerLabel'), msg = $('bannerMsg');
+
+  if(!isWorkDay){
+    label.textContent = 'Day off';
+    msg.textContent = 'No shift today. Pick your Top 3 and protect the time.';
+    return;
+  }
+  if(h < 9){
+    label.textContent = 'Morning — before work';
+    msg.textContent = 'You lose focus here. Do ONE thing from your Top 3 before you get ready.';
+  } else if(h < 10.5){
+    label.textContent = 'Getting ready';
+    msg.textContent = 'Lock in your Top 3 for the day so after work is easy.';
+  } else if(h < 20){
+    label.textContent = 'At work';
+    msg.textContent = 'On shift. Capture anything that pops up in the Inbox — don\'t act on it now.';
+  } else if(h < 22){
+    label.textContent = 'After work — danger zone';
+    msg.textContent = 'If you go home, do ONE Top 3 task before you sit down. Then you\'re free.';
+  } else {
+    label.textContent = 'Late';
+    msg.textContent = 'Wind down. Set tomorrow\'s Top 3 in 2 minutes, then rest.';
+  }
+}
+
+/* ---------- Top 3 ---------- */
+function getTask(id){ return state.tasks.find(t=>t.id===id); }
+
+function renderTop3(){
+  const wrap = $('top3List'); wrap.innerHTML = '';
+  let doneCount = 0;
+  state.top3.forEach((tid, i)=>{
+    const t = tid ? getTask(tid) : null;
+    const div = document.createElement('div');
+    div.className = 'top3-slot' + (t && t.done ? ' done' : '') + (!t ? ' empty' : '');
+    const txt = t ? t.text : 'Tap to choose priority ' + (i+1);
+    div.innerHTML = `<div class="top3-num">${t && t.done ? '✓' : (i+1)}</div>
+                     <span class="txt">${t ? esc(txt) : txt}</span>
+                     <span class="hint">${t ? 'change' : ''}</span>`;
+    div.onclick = ()=> openPicker(i);
+    wrap.appendChild(div);
+    if(t && t.done) doneCount++;
+  });
+  $('top3Count').textContent = doneCount + '/3';
+}
+
+function openPicker(i){
+  const tk = todayKey();
+  const used = state.top3.filter(Boolean).filter(x=>x !== state.top3[i]);
+  const options = state.tasks.filter(t => t.date === tk && !used.includes(t.id));
+
+  $('pickTitle').textContent = 'Choose priority ' + (i+1);
+  const list = $('pickList');
+  list.innerHTML = '';
+
+  if(state.top3[i]){
+    const clear = document.createElement('div');
+    clear.className = 'pick-item';
+    clear.innerHTML = '<span class="txt" style="color:var(--bad)">✕ Clear this slot</span>';
+    clear.onclick = ()=>{ state.top3[i] = null; save(); renderAll(); closeModal('pickModal'); };
+    list.appendChild(clear);
+  }
+
+  if(options.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No today tasks available. Add one above first.';
+    list.appendChild(empty);
+  }
+
+  options.forEach(t=>{
+    const item = document.createElement('div');
+    item.className = 'pick-item';
+    item.innerHTML = `<span class="txt">${esc(t.text)}</span>
+                      ${t.done ? '<span class="hint" style="color:var(--good)">done</span>' : ''}`;
+    item.onclick = ()=>{
+      state.top3[i] = t.id;
+      save(); renderAll(); closeModal('pickModal');
+      toast('Priority ' + (i+1) + ' set');
+    };
+    list.appendChild(item);
+  });
+
+  $('pickModal').classList.add('show');
+}
+
+/* ---------- Today tasks & Recurring ---------- */
+function renderToday(){
+  const list = $('todayList'); list.innerHTML = '';
+  const tk = todayKey();
+  const todays = state.tasks.filter(t=>t.date===tk);
+  if(todays.length===0){
+    list.innerHTML = '<div class="empty">Nothing yet. Add your 3–6 for today.</div>';
+  }
+  todays.forEach(t=>{
+    const li = document.createElement('li');
+    if(t.done) li.className='done';
+    const repeatIcon = t.repeat === 'daily' ? ' 🔁' : t.repeat === 'weekly' ? ' 📅' : '';
+    li.innerHTML = `
+      <button class="chk ${t.done?'on':''}" aria-label="toggle">✓</button>
+      <span class="txt">${esc(t.text)}${repeatIcon}</span>
+      <button class="icon-btn" title="backlog">↩</button>
+      <button class="icon-btn" title="delete">✕</button>`;
+    const [chk, , back, del] = li.querySelectorAll('button');
+    
+    chk.onclick = ()=>{ 
+      t.done = !t.done; 
+      
+      // Recurring logic
+      if(t.done && t.repeat !== 'none') {
+        let nextDate;
+        if(t.repeat === 'daily') nextDate = addDays(tk, 1);
+        if(t.repeat === 'weekly') nextDate = addDays(tk, 7);
+        
+        // Clone the task for the next date
+        const newTask = { ...t, id: uid(), done: false, date: nextDate };
+        state.tasks.push(newTask);
+        toast('Task repeated for ' + nextDate);
+      }
+
+      // Confetti if Top 3 is fully done
+      const top3Done = state.top3.every(id => {
+        const task = getTask(id);
+        return task && (task.done || task.id === t.id);
+      });
+      if(t.done && top3Done && state.top3.filter(Boolean).length > 0) {
+        confetti();
+      }
+
+      save(); renderAll(); 
+    };
+    
+    back.onclick = ()=>{ t.date=null; state.top3 = state.top3.map(x=>x===t.id?null:x); save(); renderAll(); toast('Moved to backlog'); };
+    del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); };
+    list.appendChild(li);
+  });
+  const done = todays.filter(t=>t.done).length;
+  $('todayCount').textContent = done + '/' + todays.length;
+}
+
+function addToday(){
+  const inp = $('todayInput');
+  const text = inp.value.trim();
+  if(!text){ inp.focus(); return; }
+  
+  // Cycle repeat: none -> daily -> weekly -> none
+  const currentRepeat = window.lastRepeat || 'none';
+  let nextRepeat = 'none';
+  if(currentRepeat === 'none') nextRepeat = 'daily';
+  else if(currentRepeat === 'daily') nextRepeat = 'weekly';
+  window.lastRepeat = nextRepeat;
+
+  state.tasks.push({id:uid(), text, done:false, date:todayKey(), repeat: nextRepeat});
+  inp.value=''; save(); renderAll();
+  toast('Task added (' + (nextRepeat === 'none' ? 'one-time' : nextRepeat) + ')');
+  inp.focus();
+}
+
+function removeTask(id){
+  state.tasks = state.tasks.filter(t=>t.id!==id);
+  state.top3 = state.top3.map(x=>x===id?null:x);
+}
+
+/* ---------- Pomodoro Timer ---------- */
+let timerTime = 25 * 60;
+let timerId = null;
+let isBreak = false;
+const WORK_TIME = 25 * 60;
+const BREAK_TIME = 5 * 60;
+
+function updateTimerDisplay(){
+  const m = String(Math.floor(timerTime / 60)).padStart(2, '0');
+  const s = String(timerTime % 60).padStart(2, '0');
+  $('timerDisplay').textContent = `${m}:${s}`;
+  $('timerStatus').textContent = `Session ${state.timerSessions + 1} • ${isBreak ? 'Break' : 'Focus'}`;
+}
+
+function startTimer(){
+  if(timerId) { // Pause
+    clearInterval(timerId);
+    timerId = null;
+    $('startBtn').textContent = 'Resume';
+    return;
+  }
+  $('startBtn').textContent = 'Pause';
+  timerId = setInterval(()=>{
+    if(timerTime <= 0){
+      clearInterval(timerId);
+      timerId = null;
+      $('startBtn').textContent = 'Start';
+      playBeep();
+      
+      if(!isBreak) {
+        state.timerSessions+ => t && typeof t.text === 'string').map(t => ({
       id: t.id || uid(),
       text: t.text,
       done: !!t.done,
