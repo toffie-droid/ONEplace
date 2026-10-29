@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One Place — Debug</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e8ee;
+       padding:16px;max-width:640px;margin:0 auto;font-size:15px;line-height:1.5}
+  h1{font-size:1.2rem;margin-bottom:12px}
+  button{padding:12px 16px;border-radius:10px;border:none;background:#6c8cff;
+         color:#fff;font-weight:700;font-size:.95rem;margin:6px 0;width:100%;cursor:pointer}
+  button.danger{background:#ff6b6b}
+  pre{background:#1a1d27;border:1px solid #262a38;border-radius:10px;
+      padding:12px;font-size:.78rem;white-space:pre-wrap;word-break:break-word;
+      margin-top:12px;max-height:60vh;overflow:auto}
+  .note{color:#8b90a0;font-size:.82rem;margin:8px 0 16px}
+</style>
+</head>
+<body>
+<h1>One Place — Debug</h1>
+<p class="note">Tap the button, then copy everything in the box and send it to me. Do not clear data unless I ask.</p>
+
+<button onclick="showDebug()">Show Debug Info</button>
+<button class="danger" onclick="wipe()">Wipe all data (only if I tell you to)</button>
+
+<pre id="out">Tap "Show Debug Info" above…</pre>
+
+<script>
+const KEY = 'oneplace-v1';
+function todayKey(){ return new Date().toISOString().slice(0,10); }
+
+function showDebug(){
+  const out = document.getElementById('out');
+  const lines = [];
+
+  const now = new Date();
+  lines.push('=== ENVIRONMENT ===');
+  lines.push('Now (local):        ' + now.toString());
+  lines.push('Now (ISO):          ' + now.toISOString());
+  lines.push('todayKey():         ' + todayKey());
+  lines.push('Day of week:        ' + now.getDay() + ' (0=Sun)');
+  lines.push('localStorage KEY:   ' + KEY);
+  lines.push('');
+
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch(e){}
+  lines.push('=== RAW STORAGE ===');
+  if(raw === null){
+    lines.push('NOTHING STORED under "' + KEY + '"');
+  } else {
+    lines.push('Length: ' + raw.length + ' chars');
+    lines.push('');
+    lines.push(raw);
+  }
+  lines.push('');
+
+  lines.push('=== PARSED + ANALYSIS ===');
+  if(raw){
+    try{
+      const s = JSON.parse(raw);
+      lines.push('Keys present: ' + Object.keys(s).join(', '));
+      lines.push('');
+      lines.push('tasks count: ' + (s.tasks ? s.tasks.length : 'MISSING'));
+      if(s.tasks){
+        const tk = todayKey();
+        s.tasks.forEach((t,i)=>{
+          const match = t.date === tk;
+          const isNull = t.date === null || t.date === undefined;
+          lines.push(`  [${i}] date=${JSON.stringify(t.date)} ` +
+                     `done=${t.done} ` +
+                     `${match?'<-- TODAY':(isNull?'<-- BACKLOG':'<-- OTHER DAY (invisible!)')} ` +
+                     `text="${t.text}"`);
+        });
+      }
+      lines.push('');
+      lines.push('top3: ' + JSON.stringify(s.top3));
+      if(s.top3){
+        const ids = new Set((s.tasks||[]).map(t=>t.id));
+        s.top3.forEach((id,i)=>{
+          if(id) lines.push(`  slot ${i}: id=${id} existsInTasks=${ids.has(id)}`);
+          else   lines.push(`  slot ${i}: empty`);
+        });
+      }
+      lines.push('');
+      lines.push('habits count: ' + (s.habits ? s.habits.length : 'MISSING'));
+      lines.push('moods: ' + JSON.stringify(s.moods));
+      lines.push('inbox count: ' + (s.inbox ? s.inbox.length : 'MISSING'));
+    }catch(e){
+      lines.push('PARSE ERROR: ' + e.message);
+      lines.push('The stored JSON is corrupted.');
+    }
+  } else {
+    lines.push('Nothing to analyze.');
+  }
+
+  out.textContent = lines.join('\n');
+}
+
+function wipe(){
+  if(!confirm('Delete all saved data? This cannot be undone.')) return;
+  localStorage.removeItem('oneplace-v1');
+  alert('Wiped. Reload your app and it will start fresh.');
+}
+</script>
+</body>
+</html>
