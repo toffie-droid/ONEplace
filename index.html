@@ -41,7 +41,7 @@
   /* Top 3 */
   .top3-slot{
     display:flex;align-items:center;gap:10px;padding:10px 0;
-    border-bottom:1px solid var(--line);
+    border-bottom:1px solid var(--line);cursor:pointer;
   }
   .top3-slot:last-child{border-bottom:none}
   .top3-num{
@@ -53,6 +53,7 @@
   .top3-slot span.txt{flex:1;font-size:.95rem;line-height:1.35}
   .top3-slot.done span.txt{text-decoration:line-through;color:var(--muted)}
   .top3-slot.empty span.txt{color:var(--muted);font-style:italic}
+  .top3-slot .hint{font-size:.7rem;color:var(--muted)}
   /* Tasks */
   .add-row{display:flex;gap:8px;margin-bottom:12px}
   input[type=text]{
@@ -127,6 +128,12 @@
   }
   .modal h3{font-size:1rem;margin-bottom:12px}
   .modal .add-row{margin-bottom:14px}
+  .pick-item{
+    display:flex;align-items:center;gap:10px;padding:12px 10px;
+    border-bottom:1px solid var(--line);cursor:pointer;border-radius:8px;
+  }
+  .pick-item:active{background:#232a40}
+  .pick-item:last-child{border-bottom:none}
   .toast{
     position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;
     transform:translateX(-50%) translateY(20px);opacity:0;
@@ -220,13 +227,23 @@
   </div>
 </div>
 
+<!-- TOP 3 PICKER MODAL -->
+<div class="modal-bg" id="pickModal">
+  <div class="modal">
+    <h3 id="pickTitle">Choose a priority</h3>
+    <div id="pickList"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button class="ghost" onclick="closeModal('pickModal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 /* ============================================================
-   THE ONE PLACE — v1
-   Schedule: Wed–Sun, ~11:00–20:00  (Mon/Tue = days off)
-   Data: localStorage. Back up via Export.
+   THE ONE PLACE — v1.1 (bug fixes)
+   Fixes: task visibility, Top 3 picker, data migration
    ============================================================ */
 
 const KEY = 'oneplace-v1';
@@ -235,11 +252,11 @@ const todayKey = () => new Date().toISOString().slice(0,10);
 /* ---------- State ---------- */
 function blankState(){
   return {
-    tasks: [],        // {id,text,done,date|null}  date=null => backlog
-    top3: [null,null,null], // task ids or null
-    habits: [],       // {id,name,log:{date:true}}
-    moods: {},        // {date: '😀'}
-    inbox: []         // {id,text}
+    tasks: [],
+    top3: [null,null,null],
+    habits: [],
+    moods: {},
+    inbox: []
   };
 }
 let state = load();
@@ -248,10 +265,41 @@ function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(!raw) return blankState();
-    const s = JSON.parse(raw);
-    // merge to protect against older shapes
-    const b = blankState();
-    return Object.assign(b, s);
+    const parsed = JSON.parse(raw);
+    const s = Object.assign(blankState(), parsed);
+
+    /* --- MIGRATION --- */
+    // 1. Ensure every task has an id, text, done, and a date field
+    s.tasks = (s.tasks || []).filter(t => t && typeof t.text === 'string').map(t => ({
+      id: t.id || uid(),
+      text: t.text,
+      done: !!t.done,
+      date: (t.date === undefined) ? null : t.date
+    }));
+
+    // 2. Any task with a date that isn't today's date in the past
+    //    would be invisible. Move anything not today to backlog.
+    const tk = todayKey();
+    s.tasks = s.tasks.map(t => {
+      // Keep today's tasks; anything with an old date OR missing date → backlog
+      if (t.date && t.date !== tk) return { ...t, date: null };
+      return t;
+    });
+
+    // 3. Clean up top3: drop ids that no longer exist
+    const ids = new Set(s.tasks.map(t=>t.id));
+    s.top3 = (s.top3 || [null,null,null]).slice(0,3).map(id => ids.has(id) ? id : null);
+    while(s.top3.length < 3) s.top3.push(null);
+
+    s.habits = (s.habits || []).filter(h=>h && h.name).map(h=>({
+      id: h.id || uid(), name: h.name, log: h.log || {}
+    }));
+    s.moods = s.moods || {};
+    s.inbox = (s.inbox || []).filter(i=>i && i.text).map(i=>({
+      id: i.id || uid(), text: i.text
+    }));
+
+    return s;
   }catch(e){ return blankState(); }
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -267,12 +315,12 @@ function toast(msg){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
-/* ---------- Time-aware banner (the heart of v1) ---------- */
+/* ---------- Time-aware banner ---------- */
 function updateBanner(){
   const now = new Date();
-  const day = now.getDay();            // 0=Sun ... 6=Sat
+  const day = now.getDay();          // 0=Sun
   const h = now.getHours() + now.getMinutes()/60;
-  const isWorkDay = day>=3 || day===0; // Wed,Thu,Fri,Sat,Sun
+  const isWorkDay = day>=3 || day===0;
   const label = $('bannerLabel'), msg = $('bannerMsg');
 
   if(!isWorkDay){
@@ -308,36 +356,64 @@ function renderTop3(){
     const t = tid ? getTask(tid) : null;
     const div = document.createElement('div');
     div.className = 'top3-slot' + (t && t.done ? ' done' : '') + (!t ? ' empty' : '');
-    const txt = t ? t.text : 'Tap to set priority ' + (i+1);
+    const txt = t ? t.text : 'Tap to choose priority ' + (i+1);
     div.innerHTML = `<div class="top3-num">${t && t.done ? '✓' : (i+1)}</div>
-                     <span class="txt">${t ? esc(txt) : txt}</span>`;
-    div.querySelector('.txt').addEventListener('click', ()=>pickTop3(i));
+                     <span class="txt">${t ? esc(txt) : txt}</span>
+                     <span class="hint">${t ? 'change' : ''}</span>`;
+    div.onclick = ()=> openPicker(i);
     wrap.appendChild(div);
     if(t && t.done) doneCount++;
   });
   $('top3Count').textContent = doneCount + '/3';
 }
 
-function pickTop3(i){
-  // choose from today's tasks not already in top3
-  const used = state.top3.filter(Boolean);
-  const options = state.tasks.filter(t => t.date===todayKey() && !used.includes(t.id));
-  if(options.length === 0){
-    toast('Add a task for today first');
-    return;
-  }
-  // simple cycle: pick first available, or clear if already set
+function openPicker(i){
+  const tk = todayKey();
+  const used = state.top3.filter(Boolean).filter(x=>x !== state.top3[i]);
+  // Show all today's tasks that aren't already used in another slot
+  const options = state.tasks.filter(t => t.date === tk && !used.includes(t.id));
+
+  $('pickTitle').textContent = 'Choose priority ' + (i+1);
+  const list = $('pickList');
+  list.innerHTML = '';
+
+  // Clear option if slot filled
   if(state.top3[i]){
-    state.top3[i] = null; save(); renderAll(); return;
+    const clear = document.createElement('div');
+    clear.className = 'pick-item';
+    clear.innerHTML = '<span class="txt" style="color:var(--bad)">✕ Clear this slot</span>';
+    clear.onclick = ()=>{ state.top3[i] = null; save(); renderAll(); closeModal('pickModal'); };
+    list.appendChild(clear);
   }
-  state.top3[i] = options[0].id;
-  save(); renderAll();
+
+  if(options.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No today tasks available. Add one above first.';
+    list.appendChild(empty);
+  }
+
+  options.forEach(t=>{
+    const item = document.createElement('div');
+    item.className = 'pick-item';
+    item.innerHTML = `<span class="txt">${esc(t.text)}</span>
+                      ${t.done ? '<span class="hint" style="color:var(--good)">done</span>' : ''}`;
+    item.onclick = ()=>{
+      state.top3[i] = t.id;
+      save(); renderAll(); closeModal('pickModal');
+      toast('Priority ' + (i+1) + ' set');
+    };
+    list.appendChild(item);
+  });
+
+  $('pickModal').classList.add('show');
 }
 
 /* ---------- Today tasks ---------- */
 function renderToday(){
   const list = $('todayList'); list.innerHTML = '';
-  const todays = state.tasks.filter(t=>t.date===todayKey());
+  const tk = todayKey();
+  const todays = state.tasks.filter(t=>t.date===tk);
   if(todays.length===0){
     list.innerHTML = '<div class="empty">Nothing yet. Add your 3–6 for today.</div>';
   }
@@ -355,13 +431,14 @@ function renderToday(){
     del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); };
     list.appendChild(li);
   });
-  $('todayCount').textContent = todays.filter(t=>t.done).length + '/' + todays.length;
+  const done = todays.filter(t=>t.done).length;
+  $('todayCount').textContent = done + '/' + todays.length;
 }
 
 function addToday(){
   const inp = $('todayInput');
   const text = inp.value.trim();
-  if(!text) return;
+  if(!text){ inp.focus(); return; }
   state.tasks.push({id:uid(), text, done:false, date:todayKey()});
   inp.value=''; save(); renderAll();
   inp.focus();
@@ -436,7 +513,7 @@ function renderMood(){
 function openBacklog(){ renderBacklog(); $('backlogModal').classList.add('show'); }
 function renderBacklog(){
   const list = $('backlogList'); list.innerHTML='';
-  const items = state.tasks.filter(t=>t.date===null);
+  const items = state.tasks.filter(t=>t.date===null || !t.date);
   $('backlogCount').textContent = items.length ? '('+items.length+')' : '';
   if(items.length===0){
     list.innerHTML = '<div class="empty">Backlog is empty. Dump ideas here so Today stays clean.</div>';
@@ -501,9 +578,9 @@ document.querySelectorAll('.modal-bg').forEach(m=>{
   m.addEventListener('click', e=>{ if(e.target===m) m.classList.remove('show'); });
 });
 
-/* ---------- Counts in footer ---------- */
+/* ---------- Footer counts ---------- */
 function renderCounts(){
-  const b = state.tasks.filter(t=>t.date===null).length;
+  const b = state.tasks.filter(t=>t.date===null || !t.date).length;
   $('backlogCount').textContent = b ? '('+b+')' : '';
   $('inboxCount').textContent = state.inbox.length ? '('+state.inbox.length+')' : '';
 }
@@ -525,10 +602,16 @@ $('importFile').addEventListener('change', e=>{
   r.onload = ()=>{
     try{
       const data = JSON.parse(r.result);
-      const b = blankState();
-      state = Object.assign(b, data);
-      // safety: drop top3 ids that no longer exist
-      state.top3 = state.top3.map(id => getTask(id) ? id : null);
+      state = Object.assign(blankState(), data);
+      // re-run same cleanup as load()
+      const tk = todayKey();
+      state.tasks = (state.tasks||[]).filter(t=>t && typeof t.text==='string').map(t=>({
+        id: t.id || uid(), text: t.text, done: !!t.done,
+        date: (t.date===undefined || (t.date && t.date!==tk)) ? null : t.date
+      }));
+      const ids = new Set(state.tasks.map(t=>t.id));
+      state.top3 = (state.top3||[]).slice(0,3).map(id=> ids.has(id)?id:null);
+      while(state.top3.length<3) state.top3.push(null);
       save(); renderAll();
       toast('Data imported');
     }catch(err){ alert('Could not read that file.'); }
@@ -563,9 +646,7 @@ $('inboxInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addInbox();
 
 /* ---------- Boot ---------- */
 renderAll();
-// refresh banner every minute
 setInterval(updateBanner, 60000);
-// if day rolls over while open, reset today's view
 let lastDay = todayKey();
 setInterval(()=>{
   const d = todayKey();
