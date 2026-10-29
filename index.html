@@ -285,8 +285,12 @@
   @media print {
     body { background: white; color: black; padding: 0; }
     .bottom-nav, .banner, .add-row, button, .icon-btn, .modal-bg, .toast { display: none !important; }
-    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; background: white; }
     .chk { border-color: #000; }
+    .heatmap-cell { border: 1px solid #ccc; background: white !important; }
+    .heatmap-cell[data-level="1"] { background: #d1fae5 !important; }
+    .heatmap-cell[data-level="2"] { background: #6ee7b7 !important; }
+    .heatmap-cell[data-level="3"] { background: #10b981 !important; }
   }
 </style>
 </head>
@@ -300,7 +304,7 @@
   </header>
 
   <div class="countdown-box" id="countdownBox">
-    <span class="countdown-label">Next Event</span>
+    <span class="countdown-label" id="countdownLabel">Next Event</span>
     <span class="countdown-days" id="countdownDays">None</span>
   </div>
 
@@ -522,6 +526,14 @@ function addDays(dateStr, days) {
   var d = new Date(dateStr + 'T12:00:00');
   d.setDate(d.getDate() + days);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function getWeekStart() {
+  var d = new Date();
+  var day = d.getDay();
+  var diff = d.getDate() - day; 
+  var start = new Date(d.setDate(diff));
+  return start.getFullYear() + '-' + String(start.getMonth() + 1).padStart(2, '0') + '-' + String(start.getDate()).padStart(2, '0');
 }
 
 function blankState(){
@@ -1108,13 +1120,13 @@ function renderEvents() {
 
 function saveReview() {
   var text = $('weeklyReview').value;
-  var wk = todayKey(); // Simple approach: saves to today's date
+  var wk = getWeekStart();
   state.review[wk] = text;
-  save(); toast('Review saved for today');
+  save(); toast('Review saved for this week');
 }
 
 function loadReview() {
-  var wk = todayKey();
+  var wk = getWeekStart();
   $('weeklyReview').value = state.review[wk] || '';
 }
 
