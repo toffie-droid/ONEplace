@@ -550,6 +550,281 @@ function addBacklog(){
 function openInbox(){ renderInbox(); $('inboxModal').classList.add('show'); }
 function renderInbox(){
   const list = $('inboxList'); list.innerHTML='';
+  $('inboxCount').textContent = state.inbox. => t && typeof t.text === 'string').map(t => ({
+      id: t.id || uid(),
+      text: t.text,
+      done: !!t.done,
+      date: (t.date === undefined) ? null : t.date
+    }));
+
+    // Rescue any tasks that got stuck on the "UTC tomorrow" date
+    const tk = todayKey();
+    const utcTomorrow = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+    
+    s.tasks = s.tasks.map(t => {
+      // If a task is dated "tomorrow" in UTC but it's actually today locally,
+      // pull it back to today.
+      if (t.date === utcTomorrow && utcTomorrow !== tk) {
+        return { ...t, date: tk };
+      }
+      return t;
+    });
+
+    const ids = new Set(s.tasks.map(t=>t.id));
+    s.top3 = (s.top3 || [null,null,null]).slice(0,3).map(id => ids.has(id) ? id : null);
+    while(s.top3.length < 3) s.top3.push(null);
+
+    s.habits = (s.habits || []).filter(h=>h && h.name).map(h=>({
+      id: h.id || uid(), name: h.name, log: h.log || {}
+    }));
+    s.moods = s.moods || {};
+    s.inbox = (s.inbox || []).filter(i=>i && i.text).map(i=>({
+      id: i.id || uid(), text: i.text
+    }));
+
+    return s;
+  }catch(e){ return blankState(); }
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ---------- Utils ---------- */
+const $ = id => document.getElementById(id);
+const uid = () => Math.random().toString(36).slice(2,10);
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+/* ---------- Time-aware banner ---------- */
+function updateBanner(){
+  const now = new Date();
+  const day = now.getDay();          // 0=Sun
+  const h = now.getHours() + now.getMinutes()/60;
+  const isWorkDay = day>=3 || day===0;
+  const label = $('bannerLabel'), msg = $('bannerMsg');
+
+  if(!isWorkDay){
+    label.textContent = 'Day off';
+    msg.textContent = 'No shift today. Pick your Top 3 and protect the time.';
+    return;
+  }
+  if(h < 9){
+    label.textContent = 'Morning — before work';
+    msg.textContent = 'You lose focus here. Do ONE thing from your Top 3 before you get ready.';
+  } else if(h < 10.5){
+    label.textContent = 'Getting ready';
+    msg.textContent = 'Lock in your Top 3 for the day so after work is easy.';
+  } else if(h < 20){
+    label.textContent = 'At work';
+    msg.textContent = 'On shift. Capture anything that pops up in the Inbox — don\'t act on it now.';
+  } else if(h < 22){
+    label.textContent = 'After work — danger zone';
+    msg.textContent = 'If you go home, do ONE Top 3 task before you sit down. Then you\'re free.';
+  } else {
+    label.textContent = 'Late';
+    msg.textContent = 'Wind down. Set tomorrow\'s Top 3 in 2 minutes, then rest.';
+  }
+}
+
+/* ---------- Top 3 ---------- */
+function getTask(id){ return state.tasks.find(t=>t.id===id); }
+
+function renderTop3(){
+  const wrap = $('top3List'); wrap.innerHTML = '';
+  let doneCount = 0;
+  state.top3.forEach((tid, i)=>{
+    const t = tid ? getTask(tid) : null;
+    const div = document.createElement('div');
+    div.className = 'top3-slot' + (t && t.done ? ' done' : '') + (!t ? ' empty' : '');
+    const txt = t ? t.text : 'Tap to choose priority ' + (i+1);
+    div.innerHTML = `<div class="top3-num">${t && t.done ? '✓' : (i+1)}</div>
+                     <span class="txt">${t ? esc(txt) : txt}</span>
+                     <span class="hint">${t ? 'change' : ''}</span>`;
+    div.onclick = ()=> openPicker(i);
+    wrap.appendChild(div);
+    if(t && t.done) doneCount++;
+  });
+  $('top3Count').textContent = doneCount + '/3';
+}
+
+function openPicker(i){
+  const tk = todayKey();
+  const used = state.top3.filter(Boolean).filter(x=>x !== state.top3[i]);
+  const options = state.tasks.filter(t => t.date === tk && !used.includes(t.id));
+
+  $('pickTitle').textContent = 'Choose priority ' + (i+1);
+  const list = $('pickList');
+  list.innerHTML = '';
+
+  if(state.top3[i]){
+    const clear = document.createElement('div');
+    clear.className = 'pick-item';
+    clear.innerHTML = '<span class="txt" style="color:var(--bad)">✕ Clear this slot</span>';
+    clear.onclick = ()=>{ state.top3[i] = null; save(); renderAll(); closeModal('pickModal'); };
+    list.appendChild(clear);
+  }
+
+  if(options.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No today tasks available. Add one above first.';
+    list.appendChild(empty);
+  }
+
+  options.forEach(t=>{
+    const item = document.createElement('div');
+    item.className = 'pick-item';
+    item.innerHTML = `<span class="txt">${esc(t.text)}</span>
+                      ${t.done ? '<span class="hint" style="color:var(--good)">done</span>' : ''}`;
+    item.onclick = ()=>{
+      state.top3[i] = t.id;
+      save(); renderAll(); closeModal('pickModal');
+      toast('Priority ' + (i+1) + ' set');
+    };
+    list.appendChild(item);
+  });
+
+  $('pickModal').classList.add('show');
+}
+
+/* ---------- Today tasks ---------- */
+function renderToday(){
+  const list = $('todayList'); list.innerHTML = '';
+  const tk = todayKey();
+  const todays = state.tasks.filter(t=>t.date===tk);
+  if(todays.length===0){
+    list.innerHTML = '<div class="empty">Nothing yet. Add your 3–6 for today.</div>';
+  }
+  todays.forEach(t=>{
+    const li = document.createElement('li');
+    if(t.done) li.className='done';
+    li.innerHTML = `
+      <button class="chk ${t.done?'on':''}" aria-label="toggle">✓</button>
+      <span class="txt">${esc(t.text)}</span>
+      <button class="icon-btn" title="backlog">↩</button>
+      <button class="icon-btn" title="delete">✕</button>`;
+    const [chk, , back, del] = li.querySelectorAll('button');
+    chk.onclick = ()=>{ t.done=!t.done; save(); renderAll(); };
+    back.onclick = ()=>{ t.date=null; state.top3 = state.top3.map(x=>x===t.id?null:x); save(); renderAll(); toast('Moved to backlog'); };
+    del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); };
+    list.appendChild(li);
+  });
+  const done = todays.filter(t=>t.done).length;
+  $('todayCount').textContent = done + '/' + todays.length;
+}
+
+function addToday(){
+  const inp = $('todayInput');
+  const text = inp.value.trim();
+  if(!text){ inp.focus(); return; }
+  state.tasks.push({id:uid(), text, done:false, date:todayKey()});
+  inp.value=''; save(); renderAll();
+  inp.focus();
+}
+
+function removeTask(id){
+  state.tasks = state.tasks.filter(t=>t.id!==id);
+  state.top3 = state.top3.map(x=>x===id?null:x);
+}
+
+/* ---------- Habits ---------- */
+function renderHabits(){
+  const wrap = $('habitList'); wrap.innerHTML='';
+  if(state.habits.length===0){
+    wrap.innerHTML = '<div class="empty">Start with 2–3 habits. Consistency beats quantity.</div>';
+  }
+  const tk = todayKey();
+  state.habits.forEach(h=>{
+    const on = !!h.log[tk];
+    const streak = calcStreak(h.log);
+    const row = document.createElement('div');
+    row.className='habit-row';
+    row.innerHTML = `
+      <span class="habit-name">${esc(h.name)}</span>
+      <span class="streak">🔥 ${streak}</span>
+      <button class="toggle-habit ${on?'on':''}">✓</button>
+      <button class="icon-btn" title="remove">✕</button>`;
+    const [toggle, del] = row.querySelectorAll('button');
+    toggle.onclick = ()=>{
+      if(h.log[tk]) delete h.log[tk]; else h.log[tk]=true;
+      save(); renderHabits();
+    };
+    del.onclick = ()=>{
+      state.habits = state.habits.filter(x=>x.id!==h.id);
+      save(); renderHabits();
+    };
+    wrap.appendChild(row);
+  });
+}
+function calcStreak(log){
+  let s=0, d=new Date();
+  while(true){
+    const k = d.getFullYear() + '-' + 
+              String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(d.getDate()).padStart(2, '0');
+    if(log[k]){ s++; d.setDate(d.getDate()-1); } else break;
+    if(s>3650) break;
+  }
+  return s;
+}
+function addHabit(){
+  const inp = $('habitInput');
+  const name = inp.value.trim();
+  if(!name) return;
+  state.habits.push({id:uid(), name, log:{}});
+  inp.value=''; save(); renderHabits();
+}
+
+/* ---------- Mood ---------- */
+const MOODS = ['😫','😕','😐','🙂','😄'];
+function renderMood(){
+  const row = $('moodRow'); row.innerHTML='';
+  const cur = state.moods[todayKey()];
+  MOODS.forEach(m=>{
+    const b = document.createElement('button');
+    b.className = 'mood-btn' + (cur===m?' on':'');
+    b.textContent = m;
+    b.onclick = ()=>{ state.moods[todayKey()]=m; save(); renderMood(); };
+    row.appendChild(b);
+  });
+}
+
+/* ---------- Backlog ---------- */
+function openBacklog(){ renderBacklog(); $('backlogModal').classList.add('show'); }
+function renderBacklog(){
+  const list = $('backlogList'); list.innerHTML='';
+  const items = state.tasks.filter(t=>t.date===null || !t.date);
+  $('backlogCount').textContent = items.length ? '('+items.length+')' : '';
+  if(items.length===0){
+    list.innerHTML = '<div class="empty">Backlog is empty. Dump ideas here so Today stays clean.</div>';
+  }
+  items.forEach(t=>{
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="txt">${esc(t.text)}</span>
+      <button class="ghost tiny">→ Today</button>
+      <button class="icon-btn">✕</button>`;
+    const [pull, del] = li.querySelectorAll('button');
+    pull.onclick = ()=>{ t.date = todayKey(); save(); renderAll(); renderBacklog(); toast('Added to today'); };
+    del.onclick = ()=>{ removeTask(t.id); save(); renderAll(); renderBacklog(); };
+    list.appendChild(li);
+  });
+}
+function addBacklog(){
+  const inp = $('backlogInput');
+  const text = inp.value.trim();
+  if(!text) return;
+  state.tasks.push({id:uid(), text, done:false, date:null});
+  inp.value=''; save(); renderBacklog(); renderCounts();
+}
+
+/* ---------- Inbox ---------- */
+function openInbox(){ renderInbox(); $('inboxModal').classList.add('show'); }
+function renderInbox(){
+  const list = $('inboxList'); list.innerHTML='';
   $('inboxCount').textContent = state.inbox. || uid(),
       text: t.text,
       done: !!t.done,
